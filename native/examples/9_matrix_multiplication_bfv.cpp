@@ -6,7 +6,7 @@
 using namespace std;
 using namespace seal;
 
-void bfv_mean_with_parms(SEALContext context)
+void bfv_matrix_multiplication_with_parms(SEALContext context)
 {
     chrono::high_resolution_clock::time_point time_start, time_end;
 
@@ -107,14 +107,15 @@ void bfv_mean_with_parms(SEALContext context)
 
     /*
     The matrix plaintext is simply given to BatchEncoder as a flattened vector
-    of numbers. The first `row_size' many numbers form the first row, and the
-    rest form the second row. Here we create the following matrix:
-
-        [ 5, ...,  0 ]
-        [ 0, ...,  0 ]
+    of numbers.
     */
-    vector<uint64_t> pod_matrix(slot_count, 0ULL);
-    pod_matrix[0] = 5ULL;
+    vector<uint64_t> pod_matrix;
+    random_device rd;
+    for (size_t i = 0; i < slot_count; i++)
+    {
+        // pod_matrix.push_back(plain_modulus.reduce(rd()));
+        pod_matrix.push_back(2ULL);
+    }
 
     cout << "Input plaintext matrix:" << endl;
     print_matrix(pod_matrix, row_size);
@@ -147,23 +148,35 @@ void bfv_mean_with_parms(SEALContext context)
          << endl;
 
     /*
-    Operating on the ciphertext results in homomorphic operations being performed
-    simultaneously in all 8192 slots (matrix elements). To illustrate this, we
-    form another plaintext matrix
-
-        [ 3, ..., 0 ]
-        [ 0, ..., 0 ]
-
-    and encode it into a plaintext.
+    The matrix plaintext is simply given to BatchEncoder as a flattened vector
+    of numbers.
     */
-    vector<uint64_t> pod_matrix2(slot_count, 0ULL);
-    pod_matrix2[0] = 3ULL;
+    vector<uint64_t> pod_matrix2;
+    for (size_t i = 0; i < slot_count; i++)
+    {
+        // pod_matrix2.push_back(plain_modulus.reduce(rd()));
+        pod_matrix2.push_back(2ULL);
+    }
 
-    Plaintext plain_matrix2;
-    batch_encoder.encode(pod_matrix2, plain_matrix2);
-    cout << endl;
-    cout << "Second input plaintext matrix:" << endl;
+    cout << "Input plaintext matrix2:" << endl;
     print_matrix(pod_matrix2, row_size);
+
+    /*
+    First we use BatchEncoder to encode the matrix into a plaintext polynomial.
+    */
+    Plaintext plain_matrix2;
+    print_line(__LINE__);
+    cout << "Encode plaintext matrix2:" << endl;
+    batch_encoder.encode(pod_matrix2, plain_matrix2);
+
+    /*
+    We can instantly decode to verify correctness of the encoding. Note that no
+    encryption or decryption has yet taken place.
+    */
+    vector<uint64_t> pod_result2;
+    cout << "    + Decode plaintext matrix2 ...... Correct." << endl;
+    batch_encoder.decode(plain_matrix2, pod_result2);
+    print_matrix(pod_result2, row_size);
 
     /*
     Next we encrypt the encoded plaintext.
@@ -176,12 +189,11 @@ void bfv_mean_with_parms(SEALContext context)
          << " bits" << endl;
 
     /*
-    We now add the second (encrypted) matrix to the encrypted matrix,
-    and compute the sum.
+    We now multiply the second (encrypted) matrix with the encrypted matrix.
     */
     print_line(__LINE__);
-    cout << "sum and relinearize." << endl;
-    evaluator.add_inplace(encrypted_matrix, encrypted_matrix2);
+    cout << "multiply and relinearize." << endl;
+    evaluator.multiply_inplace(encrypted_matrix, encrypted_matrix2);
     evaluator.relinearize_inplace(encrypted_matrix, relin_keys);
 
     /*
@@ -206,7 +218,7 @@ void bfv_mean_with_parms(SEALContext context)
     print_matrix(pod_result, row_size);
 }
 
-void bfv_mean()
+void bfv_matrix_multiplication()
 {
     // 4096 and 8192 works
     size_t poly_modulus_degree = 4096;
@@ -218,15 +230,15 @@ void bfv_mean()
     parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
     parms.set_plain_modulus(786433);
 
-    bfv_mean_with_parms(parms);
+    bfv_matrix_multiplication_with_parms(parms);
 }
 
 /*
 Prints a sub-menu to select the performance test.
 */
-void test_bfv_mean()
+void test_bfv_matrix_multiplication()
 {
-    print_example_banner("Computing Integer Mean Across Two Vectors");
+    print_example_banner("Computing a Matrix Multiplication");
     cout << "  BFV with a custom degree" << endl;
-    bfv_mean();
+    bfv_matrix_multiplication();
 }
