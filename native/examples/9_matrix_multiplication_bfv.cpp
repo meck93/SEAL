@@ -90,6 +90,11 @@ void bfv_matrix_multiplication_with_parms(SEALContext context)
 #endif
 
     /*
+    How many times to run the test?
+    */
+    long long count = 20;
+
+    /*
     We can verify that batching is indeed enabled by looking at the encryption
     parameter qualifiers created by SEALContext.
     */
@@ -105,122 +110,177 @@ void bfv_matrix_multiplication_with_parms(SEALContext context)
     size_t row_size = slot_count / 2;
     cout << "Plaintext matrix row size: " << row_size << endl;
 
-    /*
-    The matrix plaintext is simply given to BatchEncoder as a flattened vector
-    of numbers.
-    */
-    vector<uint64_t> pod_matrix;
     random_device rd;
-    for (size_t i = 0; i < slot_count; i++)
+
+    cout << "Running tests ";
+    for (size_t i = 0; i < static_cast<size_t>(count); i++)
     {
-        // pod_matrix.push_back(plain_modulus.reduce(rd()));
-        pod_matrix.push_back(2ULL);
+        /*
+        The matrix plaintext is simply given to BatchEncoder as a flattened vector of numbers.
+        */
+        vector<uint64_t> pod_matrix;
+        for (size_t i = 0; i < slot_count; i++)
+        {
+            pod_matrix.push_back(plain_modulus.reduce(rd()));
+            // pod_matrix.push_back(2ULL);
+        }
+
+        cout << "Input plaintext matrix:" << endl;
+        print_matrix(pod_matrix, row_size);
+
+        /*
+        First we use BatchEncoder to encode the matrix into a plaintext polynomial.
+        */
+        Plaintext plain_matrix;
+        print_line(__LINE__);
+        cout << "Encode plaintext matrix:" << endl;
+        time_start = chrono::high_resolution_clock::now();
+        batch_encoder.encode(pod_matrix, plain_matrix);
+        time_end = chrono::high_resolution_clock::now();
+        time_batch_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        /*
+        We can instantly decode to verify correctness of the encoding. Note that no
+        encryption or decryption has yet taken place.
+        */
+        vector<uint64_t> pod_result;
+        cout << "    + Decode plaintext matrix ...... Correct." << endl;
+        batch_encoder.decode(plain_matrix, pod_result);
+        print_matrix(pod_result, row_size);
+
+        /*
+        Next we encrypt the encoded plaintext.
+        */
+        Ciphertext encrypted_matrix;
+        print_line(__LINE__);
+        cout << "Encrypt plain_matrix to encrypted_matrix." << endl;
+        time_start = chrono::high_resolution_clock::now();
+        encryptor.encrypt(plain_matrix, encrypted_matrix);
+        time_end = chrono::high_resolution_clock::now();
+        time_encrypt_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        cout << "    + Noise budget in encrypted_matrix: " << decryptor.invariant_noise_budget(encrypted_matrix)
+             << " bits" << endl;
+
+        /*
+        The matrix plaintext is simply given to BatchEncoder as a flattened vector
+        of numbers.
+        */
+        vector<uint64_t> pod_matrix2;
+        for (size_t i = 0; i < slot_count; i++)
+        {
+            pod_matrix2.push_back(plain_modulus.reduce(rd()));
+            // pod_matrix2.push_back(2ULL);
+        }
+
+        cout << "Input plaintext matrix2:" << endl;
+        print_matrix(pod_matrix2, row_size);
+
+        /*
+        First we use BatchEncoder to encode the matrix into a plaintext polynomial.
+        */
+        Plaintext plain_matrix2;
+        print_line(__LINE__);
+        cout << "Encode plaintext matrix2:" << endl;
+        batch_encoder.encode(pod_matrix2, plain_matrix2);
+
+        /*
+        We can instantly decode to verify correctness of the encoding. Note that no
+        encryption or decryption has yet taken place.
+        */
+        vector<uint64_t> pod_result2;
+        cout << "    + Decode plaintext matrix2 ...... Correct." << endl;
+        batch_encoder.decode(plain_matrix2, pod_result2);
+        print_matrix(pod_result2, row_size);
+
+        /*
+        Next we encrypt the encoded plaintext.
+        */
+        Ciphertext encrypted_matrix2;
+        print_line(__LINE__);
+        cout << "Encrypt plain_matrix2 to encrypted_matrix2." << endl;
+        encryptor.encrypt(plain_matrix2, encrypted_matrix2);
+        cout << "    + Noise budget in encrypted_matrix2: " << decryptor.invariant_noise_budget(encrypted_matrix2)
+             << " bits" << endl;
+
+        /*
+        We now multiply the second (encrypted) matrix with the encrypted matrix.
+        */
+        print_line(__LINE__);
+        cout << "multiply and relinearize." << endl;
+
+        // multiply inplace
+        time_start = chrono::high_resolution_clock::now();
+        evaluator.multiply_inplace(encrypted_matrix, encrypted_matrix2);
+        time_end = chrono::high_resolution_clock::now();
+        time_multiply_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        // relinerarize
+        time_start = chrono::high_resolution_clock::now();
+        evaluator.relinearize_inplace(encrypted_matrix, relin_keys);
+        time_end = chrono::high_resolution_clock::now();
+        time_relinearize_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        /*
+        How much noise budget do we have left?
+        */
+        cout << "    + Noise budget in result: " << decryptor.invariant_noise_budget(encrypted_matrix) << " bits"
+             << endl;
+
+        /*
+        We decrypt and decompose the plaintext to recover the result as a matrix.
+        The result is illustrated below
+
+            [ 8, ..., 0 ]
+            [ 0, ..., 0 ]
+
+        */
+        Plaintext plain_result;
+        print_line(__LINE__);
+        cout << "Decrypt and decode result." << endl;
+
+        time_start = chrono::high_resolution_clock::now();
+        decryptor.decrypt(encrypted_matrix, plain_result);
+        time_end = chrono::high_resolution_clock::now();
+        time_decrypt_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        time_start = chrono::high_resolution_clock::now();
+        batch_encoder.decode(plain_result, pod_result);
+        time_end = chrono::high_resolution_clock::now();
+        time_unbatch_sum += chrono::duration_cast<chrono::microseconds>(time_end - time_start);
+
+        cout << "    + Result plaintext matrix ...... Correct." << endl;
+        print_matrix(pod_result, row_size);
+
+        /*
+        Print a dot to indicate progress.
+        */
+        cout << ".";
+        cout.flush();
     }
 
-    cout << "Input plaintext matrix:" << endl;
-    print_matrix(pod_matrix, row_size);
+    cout << " Done" << endl << endl;
+    cout.flush();
 
-    /*
-    First we use BatchEncoder to encode the matrix into a plaintext polynomial.
-    */
-    Plaintext plain_matrix;
-    print_line(__LINE__);
-    cout << "Encode plaintext matrix:" << endl;
-    batch_encoder.encode(pod_matrix, plain_matrix);
+    auto avg_batch = time_batch_sum.count() / count;
+    auto avg_unbatch = time_unbatch_sum.count() / count;
+    auto avg_encrypt = time_encrypt_sum.count() / count;
+    auto avg_decrypt = time_decrypt_sum.count() / count;
+    auto avg_multiply = time_multiply_sum.count() / count;
+    auto avg_relinearize = time_relinearize_sum.count() / count;
 
-    /*
-    We can instantly decode to verify correctness of the encoding. Note that no
-    encryption or decryption has yet taken place.
-    */
-    vector<uint64_t> pod_result;
-    cout << "    + Decode plaintext matrix ...... Correct." << endl;
-    batch_encoder.decode(plain_matrix, pod_result);
-    print_matrix(pod_result, row_size);
-
-    /*
-    Next we encrypt the encoded plaintext.
-    */
-    Ciphertext encrypted_matrix;
-    print_line(__LINE__);
-    cout << "Encrypt plain_matrix to encrypted_matrix." << endl;
-    encryptor.encrypt(plain_matrix, encrypted_matrix);
-    cout << "    + Noise budget in encrypted_matrix: " << decryptor.invariant_noise_budget(encrypted_matrix) << " bits"
-         << endl;
-
-    /*
-    The matrix plaintext is simply given to BatchEncoder as a flattened vector
-    of numbers.
-    */
-    vector<uint64_t> pod_matrix2;
-    for (size_t i = 0; i < slot_count; i++)
-    {
-        // pod_matrix2.push_back(plain_modulus.reduce(rd()));
-        pod_matrix2.push_back(2ULL);
-    }
-
-    cout << "Input plaintext matrix2:" << endl;
-    print_matrix(pod_matrix2, row_size);
-
-    /*
-    First we use BatchEncoder to encode the matrix into a plaintext polynomial.
-    */
-    Plaintext plain_matrix2;
-    print_line(__LINE__);
-    cout << "Encode plaintext matrix2:" << endl;
-    batch_encoder.encode(pod_matrix2, plain_matrix2);
-
-    /*
-    We can instantly decode to verify correctness of the encoding. Note that no
-    encryption or decryption has yet taken place.
-    */
-    vector<uint64_t> pod_result2;
-    cout << "    + Decode plaintext matrix2 ...... Correct." << endl;
-    batch_encoder.decode(plain_matrix2, pod_result2);
-    print_matrix(pod_result2, row_size);
-
-    /*
-    Next we encrypt the encoded plaintext.
-    */
-    Ciphertext encrypted_matrix2;
-    print_line(__LINE__);
-    cout << "Encrypt plain_matrix2 to encrypted_matrix2." << endl;
-    encryptor.encrypt(plain_matrix2, encrypted_matrix2);
-    cout << "    + Noise budget in encrypted_matrix2: " << decryptor.invariant_noise_budget(encrypted_matrix2)
-         << " bits" << endl;
-
-    /*
-    We now multiply the second (encrypted) matrix with the encrypted matrix.
-    */
-    print_line(__LINE__);
-    cout << "multiply and relinearize." << endl;
-    evaluator.multiply_inplace(encrypted_matrix, encrypted_matrix2);
-    evaluator.relinearize_inplace(encrypted_matrix, relin_keys);
-
-    /*
-    How much noise budget do we have left?
-    */
-    cout << "    + Noise budget in result: " << decryptor.invariant_noise_budget(encrypted_matrix) << " bits" << endl;
-
-    /*
-    We decrypt and decompose the plaintext to recover the result as a matrix.
-    The result is illustrated below
-
-        [ 8, ..., 0 ]
-        [ 0, ..., 0 ]
-
-    */
-    Plaintext plain_result;
-    print_line(__LINE__);
-    cout << "Decrypt and decode result." << endl;
-    decryptor.decrypt(encrypted_matrix, plain_result);
-    batch_encoder.decode(plain_result, pod_result);
-    cout << "    + Result plaintext matrix ...... Correct." << endl;
-    print_matrix(pod_result, row_size);
+    cout << "Average batch: " << avg_batch << " microseconds" << endl;
+    cout << "Average unbatch: " << avg_unbatch << " microseconds" << endl;
+    cout << "Average encrypt: " << avg_encrypt << " microseconds" << endl;
+    cout << "Average decrypt: " << avg_decrypt << " microseconds" << endl;
+    cout << "Average multiply: " << avg_multiply << " microseconds" << endl;
+    cout << "Average relinearize: " << avg_relinearize << " microseconds" << endl;
+    cout.flush();
 }
 
 void bfv_matrix_multiplication()
 {
-    // 4096 and 8192 works
+    // 4096, 8192, 16384 and 32768 works
     size_t poly_modulus_degree = 4096;
     string banner = "BFV Performance Test with Degree: ";
     print_example_banner(banner + to_string(poly_modulus_degree));
