@@ -28,6 +28,9 @@ if(SEAL_BUILD_EXAMPLES)
             ${CMAKE_CURRENT_LIST_DIR}/5_rotation.cpp
             ${CMAKE_CURRENT_LIST_DIR}/6_serialization.cpp
             ${CMAKE_CURRENT_LIST_DIR}/7_performance.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/8_average_bfv.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/9_matrix_multiplication_bfv.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/10_matrix_multiplication_ckks.cpp
     )
 
     if(TARGET SEAL::seal)

@@ -34,6 +34,12 @@ void example_serialization();
 
 void example_performance_test();
 
+void test_bfv_mean();
+
+void test_bfv_matrix_multiplication();
+
+void test_ckks_matrix_multiplication();
+
 /*
 Helper function: Prints the name of the example in a fancy banner.
 */
